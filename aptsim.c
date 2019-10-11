@@ -21,6 +21,8 @@ void openApt();
 void tenantLeaves();
 void agentLeaves();
 
+/* UTILITIES */
+
 void allocate(void **ptr, unsigned long mmap_size)
 {
     *ptr = mmap(NULL, mmap_size, PROT_READ | PROT_WRITE, MAP_SHARED | MAP_ANONYMOUS, 0, 0);
@@ -46,6 +48,37 @@ void deallocate(void **ptr, unsigned long mmap_size)
 int randint(int min, int max)
 {
     return (rand() % (max - min + 1)) + min;
+}
+
+/* MONITOR */
+
+void tenantArrives()
+{
+}
+
+void tenantLeaves()
+{
+}
+
+void agentArrives()
+{
+}
+
+void agentLeaves()
+{
+}
+
+
+/* PROCESSES */
+
+void agent_proc()
+{
+
+}
+
+void tenant_proc()
+{
+
 }
 
 int main(int argc, char **argv)
@@ -100,10 +133,11 @@ int main(int argc, char **argv)
                 if (pid == 0)
                 {
                     // tenant
+                    tenant_proc();
                 }
                 else
                 {
-                    // parent
+                    // parent proc
                 }
             }
         }        
@@ -126,6 +160,7 @@ int main(int argc, char **argv)
                     if (spawn == 0)
                     {
                         // agent
+                        agent_proc();
                     }
                     else
                     {
