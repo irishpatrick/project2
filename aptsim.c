@@ -52,6 +52,15 @@ int randint(int min, int max)
 
 /* MONITOR */
 
+typedef struct _Monitor
+{
+    struct cs1550_lock *lock;
+    struct cs1550_condition *cond1;
+    struct cs1550_condition *cond2;
+    int num_tenants;
+    int num_agents;
+} Monitor;
+
 void tenantArrives()
 {
 }
@@ -65,6 +74,14 @@ void agentArrives()
 }
 
 void agentLeaves()
+{
+}
+
+void viewApt()
+{
+}
+
+void openApt()
 {
 }
 
@@ -84,6 +101,8 @@ void tenant_proc()
 int main(int argc, char **argv)
 {
     srand(time(NULL));
+
+    Monitor aptsim;
 
     int num_cond_vars = 2;
     int num_flags = 2;
