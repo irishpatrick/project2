@@ -9,7 +9,8 @@
 #include <stdlib.h>
 #include <string.h>
 
-// function declarations
+/* FUNCTION DECLARATIONS */
+
 int randint(int, int);
 void allocate(void **, unsigned long);
 void deallocate(void **, unsigned long);
@@ -55,8 +56,9 @@ int randint(int min, int max)
 typedef struct _Monitor
 {
     struct cs1550_lock *lock;
-    struct cs1550_condition *cond1;
+    struct cs1550_condition *agent_arrive;
     struct cs1550_condition *cond2;
+    
     int num_tenants;
     int num_agents;
 } Monitor;
@@ -100,17 +102,42 @@ void tenant_proc()
 
 int main(int argc, char **argv)
 {
+    if (argc < 5)
+    {
+        printf("usage: ./aptsim -m <num tenants> -k <num agents>\n");
+        return 0;
+    }
+
     srand(time(NULL));
 
     Monitor aptsim;
 
+    aptsim.num_tenants = -1;
+    aptsim.num_agents = -1;
+
+    int i;
+    for (i = 1; i < 5; i += 2)
+    {
+        if (strcmp(argv[i], "-m") == 0)
+        {
+            aptsim.num_tenants = atoi(argv[i + 1]);
+        }
+        else if (strcmp(argv[i], "-k") == 0)
+        {
+            aptsim.num_agents = atoi(argv[i + 1]);
+        }
+    }
+
+    if (aptsim.num_tenants < 1 || aptsim.num_agents < 1)
+    {
+        printf("bad arguments\n");
+        return 0;
+    }
+
     int num_cond_vars = 2;
     int num_flags = 2;
 
-    int num_tenants = 10;
-    int num_agents = 10;
-
-    // share memory
+   /* SHARE MEMORY */
 
     struct cs1550_lock *lock = mmap(
         NULL, 
@@ -123,7 +150,7 @@ int main(int argc, char **argv)
         MAP_SHARED | MAP_ANONYMOUS, 
         0, 0);
     
-    // pointer math
+    /* CREATE ALL SYNC STUFF */
     
     struct cs1550_condition *cond1 = (struct cs1550_condition *)(lock + 1);
     struct cs1550_condition *cond2 = cond1 + 1;
@@ -136,6 +163,8 @@ int main(int argc, char **argv)
 
     *done1 = false;
     *done2 = false;
+
+    /* CREATE PROCESSES */
 
     int pid = fork();
     if (pid == 0)
