@@ -79,7 +79,8 @@ typedef struct _Monitor
 } Monitor;
 
 void tenantArrives(Monitor *m)
-{   
+{
+       
 }
 
 void tenantLeaves(Monitor *m)
