@@ -56,46 +56,61 @@ int randint(int min, int max)
 typedef struct _Monitor
 {
     struct cs1550_lock *lock;
-    struct cs1550_condition *agent_arrive;
-    struct cs1550_condition *cond2;
+    
+    /* CONDITION VARIABLES */
+    struct cs1550_condition *apt_empty;
+    struct cs1550_condition *want_to_view;
+    struct cs1550_condition *last_tenant;
+
+    /* FLAGS */
+
+    bool *apt_open;
+
+    /* OTHER STUFF */  
+
+    int *num_views;
+    int *num_inside;
+
+    /* CONSTANTS */
     
     int num_tenants;
     int num_agents;
+
 } Monitor;
 
-void tenantArrives()
+void tenantArrives(Monitor *m)
+{   
+}
+
+void tenantLeaves(Monitor *m)
 {
 }
 
-void tenantLeaves()
+void agentArrives(Monitor *m)
 {
 }
 
-void agentArrives()
+void agentLeaves(Monitor *m)
 {
 }
 
-void agentLeaves()
+void viewApt(Monitor *m)
 {
 }
 
-void viewApt()
-{
-}
-
-void openApt()
+void openApt(Monitor *m)
 {
 }
 
 
 /* PROCESSES */
 
-void agent_proc()
+void agent_proc(Monitor *m)
 {
 
 }
 
-void tenant_proc()
+void tenant_proc(Monitor* m)
 {
 
 }
@@ -134,7 +149,8 @@ int main(int argc, char **argv)
         return 0;
     }
 
-    int num_cond_vars = 2;
+    int num_cond_vars = 3;
+    int num_vals = 2;
     int num_flags = 2;
 
    /* SHARE MEMORY */
@@ -144,7 +160,8 @@ int main(int argc, char **argv)
  
         sizeof(struct cs1550_lock) + 
         num_cond_vars * sizeof(struct cs1550_condition) + 
-        num_flags * sizeof(bool),
+        num_flags * sizeof(bool) + 
+        num_vals * sizeof(int),
 
         PROT_READ | PROT_WRITE, 
         MAP_SHARED | MAP_ANONYMOUS, 
@@ -154,8 +171,11 @@ int main(int argc, char **argv)
     
     struct cs1550_condition *cond1 = (struct cs1550_condition *)(lock + 1);
     struct cs1550_condition *cond2 = cond1 + 1;
-    bool *done1 = (bool *)(cond2 + 1);
+    struct cs1550_condition *cond3 = cond2 + 1;
+    bool *done1 = (bool *)(cond3 + 1);
     bool *done2 = done1 + 1;
+    int *val1 = (int *)(done2 + 1);
+    int *val2 = val1 + 1;
 
     cs1550_init_lock(lock);
     cs1550_init_condition(cond1, lock);
@@ -164,6 +184,15 @@ int main(int argc, char **argv)
     *done1 = false;
     *done2 = false;
 
+    aptsim.apt_empty = cond1;
+    aptsim.want_to_view = cond2;
+    aptsim.last_tenant = cond3;
+
+    aptsim.apt_open = done1;
+
+    aptsim.num_views = val1;
+    aptsim.num_inside = val2;
+
     /* CREATE PROCESSES */
 
     int pid = fork();
@@ -171,7 +200,7 @@ int main(int argc, char **argv)
     {
         // tenant spawner
         int i;
-        while (i < num_tenants)
+        while (i < aptsim.num_tenants)
         {
             int prob = randint(1, 10);
             if (prob == 5)
@@ -181,7 +210,7 @@ int main(int argc, char **argv)
                 if (pid == 0)
                 {
                     // tenant
-                    tenant_proc();
+                    tenant_proc(&aptsim);
                 }
                 else
                 {
@@ -198,7 +227,7 @@ int main(int argc, char **argv)
         {
             // agent spawner
             int i;
-            while (i < num_agents)
+            while (i < aptsim.num_agents)
             {
                 int prob = randint(1, 10);
                 if (prob == 5)
@@ -208,7 +237,7 @@ int main(int argc, char **argv)
                     if (spawn == 0)
                     {
                         // agent
-                        agent_proc();
+                        agent_proc(&aptsim);
                     }
                     else
                     {
@@ -222,14 +251,15 @@ int main(int argc, char **argv)
             // parent
 
 
+            // TODO wait for all procs
             wait(NULL);
             wait(NULL);
             int i;
-            for (i = 0; i < num_tenants; ++i)
+            for (i = 0; i < aptsim.num_tenants; ++i)
             {
                 wait(NULL);
             }
-            for (i = 0; i < num_agents; ++i)
+            for (i = 0; i < aptsim.num_agents; ++i)
             {
                 wait(NULL);
             }
