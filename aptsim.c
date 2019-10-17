@@ -293,6 +293,7 @@ int main(int argc, char **argv)
     int pid = fork();
     if (pid == 0)
     {
+        printf("start tenant spawner\n");
         // tenant spawner
         int i = 0;
         while (i < aptsim.num_tenants)
@@ -302,7 +303,7 @@ int main(int argc, char **argv)
             {
                 ++i;
                 int spawn = fork();
-                if (pid == 0)
+                if (spawn == 0)
                 {
                     // tenant
                     tenant_proc(&aptsim, i);
@@ -318,8 +319,8 @@ int main(int argc, char **argv)
     else
     {
         // parent
-        pid = fork();
-        if (pid == 0)
+        int pid2 = fork();
+        if (pid2 == 0)
         {
             // agent spawner
             int j = 0;
