@@ -156,6 +156,8 @@ void viewApt(Monitor *m)
     *(m->num_inside) += 1;
     *(m->num_views) += 1;
 
+    printf("Tenant %d inspects the apartment at time %d", -1, cur_time());
+
     sleep(2);
     
     cs1550_release(m->lock); 
@@ -165,6 +167,8 @@ void openApt(Monitor *m) {
     cs1550_acquire(m->lock); 
     
     *(m->apt_open) = true; 
+
+    printf("Agent %d opens the apartment for inspection at time %d", -1, cur_time());
 
     cs1550_broadcast(m->want_to_view);
     
