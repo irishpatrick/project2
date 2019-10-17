@@ -80,27 +80,81 @@ typedef struct _Monitor
 
 void tenantArrives(Monitor *m)
 {
-       
+    cs1550_acquire(m->lock);
+
+    bool can_enter = *(m->apt_open) && *(m->num_views) < 10;
+    while (!can_enter)
+    {
+        cs1550_wait(m->want_to_view);
+    }
+
+    cs1550_release(m->lock);
 }
 
 void tenantLeaves(Monitor *m)
 {
+    cs1550_acquire(m->lock);
+
+    *(m->num_inside) -= 1;
+    if (*(m->num_inside) == 0)
+    {
+        cs1550_signal(m->last_tenant);
+    }
+
+    cs1550_release(m->lock);
 }
 
 void agentArrives(Monitor *m)
 {
+    cs1550_acquire(m->lock);
+
+    bool can_open = !*(m->apt_open);
+    while (!can_open)
+    {
+        cs1550_wait(m->apt_empty);
+    }
+
+    //*(m->apt_open) = true;
+
+    cs1550_release(m->lock);
 }
 
 void agentLeaves(Monitor *m)
 {
+    cs1550_acquire(m->lock);
+
+    bool can_leave = *(m->num_inside) > 0;
+    while (!can_leave)
+    {
+        cs1550_wait(m->last_tenant);
+    }
+
+    *(m->num_inside) = 0;
+    *(m->num_views) = 0;
+    *(m->apt_open) = false;
+
+    cs1550_signal(m->apt_empty);
+
+    cs1550_release(m->lock);
 }
 
 void viewApt(Monitor *m)
 {
+    cs1550_acquire(m->lock);
+
+    *(m->num_inside) += 1;
+    *(m->num_views) += 1;
+
+    cs1550_release(m->lock);
 }
 
 void openApt(Monitor *m)
 {
+    cs1550_acquire(m->lock);
+
+    *(m->apt_open) = true;
+
+    cs1550_release(m->lock);
 }
 
 
