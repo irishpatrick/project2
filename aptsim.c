@@ -51,6 +51,13 @@ int randint(int min, int max)
     return (rand() % (max - min + 1)) + min;
 }
 
+int cur_time()
+{
+    struct timeval tv;
+    gettimeofday(&tv, 0);
+    return (int)(tv.tv_sec);
+}
+
 /* MONITOR */
 
 typedef struct _Monitor
@@ -88,6 +95,8 @@ void tenantArrives(Monitor *m)
         cs1550_wait(m->want_to_view);
     }
 
+    printf("Tenant %d arrives at time %d.\n", *(m->num_inside), cur_time());
+
     cs1550_release(m->lock);
 }
 
@@ -113,6 +122,8 @@ void agentArrives(Monitor *m)
     {
         cs1550_wait(m->apt_empty);
     }
+
+    printf("Agent %d arrives at time %d.\n", -1, cur_time());
 
     //*(m->apt_open) = true;
 
@@ -145,7 +156,7 @@ void viewApt(Monitor *m)
     *(m->num_inside) += 1;
     *(m->num_views) += 1;
 
-    // TODO sleep for 2 seconds 
+    sleep(2);
     
     cs1550_release(m->lock); 
 }
@@ -167,7 +178,7 @@ void agent_proc(Monitor *m)
 {
     agentArrives(m);
     openApt(m);
-    agentLeaves();
+    agentLeaves(m);
 }
 
 void tenant_proc(Monitor* m)
