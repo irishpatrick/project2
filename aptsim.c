@@ -123,7 +123,7 @@ void agentLeaves(Monitor *m)
 {
     cs1550_acquire(m->lock);
 
-    bool can_leave = *(m->num_inside) > 0;
+    bool can_leave = *(m->apt_open) && *(m->num_inside) > 0;
     while (!can_leave)
     {
         cs1550_wait(m->last_tenant);
@@ -145,15 +145,18 @@ void viewApt(Monitor *m)
     *(m->num_inside) += 1;
     *(m->num_views) += 1;
 
-    cs1550_release(m->lock);
+    // TODO sleep for 2 seconds 
+    
+    cs1550_release(m->lock); 
 }
 
-void openApt(Monitor *m)
-{
-    cs1550_acquire(m->lock);
+void openApt(Monitor *m) {
+    cs1550_acquire(m->lock); 
+    
+    *(m->apt_open) = true; 
 
-    *(m->apt_open) = true;
-
+    cs1550_broadcast(m->want_to_view);
+    
     cs1550_release(m->lock);
 }
 
@@ -162,12 +165,16 @@ void openApt(Monitor *m)
 
 void agent_proc(Monitor *m)
 {
-
+    agentArrives(m);
+    openApt(m);
+    agentLeaves();
 }
 
 void tenant_proc(Monitor* m)
 {
-
+    tenantArrives(m);
+    viewApt(m);
+    tenantLeaves(m);
 }
 
 int main(int argc, char **argv)
