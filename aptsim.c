@@ -95,31 +95,24 @@ typedef struct _Monitor
 
 } Monitor;
 
-void monitor_init(Monitor *m)
-{
-    cs1550_init_lock(m->lock);
-    cs1550_init_condition(m->apt_empty, m->lock);
-    cs1550_init_condition(m->want_to_view, m->lock);
-    cs1550_init_condition(m->last_tenant, m->lock);
-
-    *(m->apt_open) = false;
-    *(m->num_views) = 0;
-    *(m->num_inside) = 0;
-    *(m->num_waiting) = 0;
-}
-
 void tenantArrives(Monitor *m, int id)
 {
     cs1550_acquire(m->lock);
 
     printf("Tenant %d arrives at time %d.\n", id, elapsed());
 
-    //*(m->num_waiting) += 1;
+    *(m->num_waiting) += 1;
 
-    while (!*(m->apt_open) || *(m->num_views) > 10)
+    while (!*(m->apt_open) || *(m->num_views) >= 10)
     {
         cs1550_wait(m->want_to_view);
     }
+
+    printf("got thru\n");
+
+    *(m->num_waiting) -= 1;
+    *(m->num_inside) += 1;
+    *(m->num_views) += 1;
 
     cs1550_release(m->lock);
 }
@@ -145,7 +138,7 @@ void agentArrives(Monitor *m, int id)
 
     printf("Agent %d arrives at time %d.\n", id, elapsed());
 
-    while (*(m->apt_open)/* || *(m->num_waiting) < 1*/)
+    while (*(m->apt_open) || *(m->num_waiting) < 1)
     {
         cs1550_wait(m->apt_empty);
     }
@@ -156,8 +149,10 @@ void agentArrives(Monitor *m, int id)
 void agentLeaves(Monitor *m, int id)
 {
     cs1550_acquire(m->lock);
+
+    printf("%d && %d\n", *(m->num_inside) > 0, *(m->num_waiting) != 0);
     
-    while (*(m->num_inside) > 0)
+    while (*(m->num_inside) > 0 && *(m->num_waiting) > 0)
     {
         cs1550_wait(m->last_tenant);
     }
@@ -177,10 +172,6 @@ void viewApt(Monitor *m, int id)
 {
     cs1550_acquire(m->lock);
     
-    //*(m->num_waiting) -= 1;
-    *(m->num_inside) += 1;
-    *(m->num_views) += 1;
-
     printf("Tenant %d inspects the apartment at time %d\n", id, elapsed());
 
     sleep(2);
@@ -196,8 +187,14 @@ void openApt(Monitor *m, int id)
 
     printf("Agent %d opens the apartment for inspection at time %d\n", id, elapsed());
 
-    cs1550_broadcast(m->want_to_view);
-    
+    //cs1550_broadcast(m->want_to_view);
+    int i;
+    for (i = 0; i < *(m->num_waiting); ++i)
+    {
+        printf("signal\n");
+        cs1550_signal(m->want_to_view);
+    }
+
     cs1550_release(m->lock);
 }
 
@@ -283,10 +280,17 @@ int main(int argc, char **argv)
     bool *done2 = done1 + 1;
     int *val1 = (int *)(done2 + 1);
     int *val2 = val1 + 1;
-    //int *val3 = val2 + 1;
+    int *val3 = val2 + 1;
 
     *done1 = false;
     *done2 = false;
+
+    cs1550_init_lock(lock);
+    cs1550_init_condition(cond1, lock);
+    cs1550_init_condition(cond2, lock);
+    cs1550_init_condition(cond3, lock);
+
+    aptsim.lock = lock;
 
     aptsim.apt_empty = cond1;
     aptsim.want_to_view = cond2;
@@ -296,10 +300,9 @@ int main(int argc, char **argv)
 
     aptsim.num_views = val1;
     aptsim.num_inside = val2;
-    //aptsim.num_waiting = val3;
+    aptsim.num_waiting = val3;
 
-    monitor_init(&aptsim);
-
+    printf("set start time\n");
     start_time = cur_time();
 
     /* CREATE PROCESSES */
@@ -311,7 +314,8 @@ int main(int argc, char **argv)
         int i = 0;
         while (i < aptsim.num_tenants)
         {
-            int prob = randint(1, 1000);
+            //printf("l");
+            int prob = randint(1, 1000000);
             if (prob == 5)
             {
                 ++i;
@@ -339,7 +343,7 @@ int main(int argc, char **argv)
             int j = 0;
             while (j < aptsim.num_agents)
             {
-                int prob = randint(1, 1000);
+                int prob = randint(1, 1000000);
                 if (prob == 5)
                 {
                     ++j;
@@ -363,24 +367,22 @@ int main(int argc, char **argv)
         }
     }
 
-    //int wpid;
-    //while ((wpid = wait(NULL)) a
-
-    /* WAIT FOR ALL PROCESSES */
-
-    /*wait(NULL);
-    wait(NULL);*/
-
+    /* WAIT FOR CHILDREN */
     int k = 0;
+
+    /* WAIT FOR TENANTS */
     for (k = 0; k < aptsim.num_tenants; ++k)
     {
         wait(NULL);
     }
+
+    /* WAIT FOR AGENTS */
     for (k = 0; k < aptsim.num_agents; ++k)
     {
         wait(NULL);
     }
 
+    /* WAIT FOR SPAWNERS */
     wait(NULL);
     wait(NULL);
 
