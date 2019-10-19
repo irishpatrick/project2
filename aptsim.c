@@ -77,10 +77,12 @@ typedef struct _Monitor
     struct cs1550_condition *apt_empty;
     struct cs1550_condition *want_to_view;
     struct cs1550_condition *last_tenant;
+    struct cs1550_condition *first_tenant;
 
     /* FLAGS */
 
     bool *apt_open;
+    bool *agent_inside;
 
     /* OTHER STUFF */  
 
@@ -101,8 +103,13 @@ void tenantArrives(Monitor *m, int id)
 
     printf("Tenant %d arrives at time %d.\n", id, elapsed());
 
-    *(m->num_waiting) += 1;
+    if (*(m->num_waiting) == 0)
+    {
+        cs1550_signal(m->first_tenant);
+    }
 
+    *(m->num_waiting) += 1;
+    
     while (!*(m->apt_open) || *(m->num_views) >= 10)
     {
         cs1550_wait(m->want_to_view);
@@ -138,10 +145,20 @@ void agentArrives(Monitor *m, int id)
 
     printf("Agent %d arrives at time %d.\n", id, elapsed());
 
-    while (*(m->apt_open) || *(m->num_waiting) < 1)
+    while (*(m->num_waiting) < 1)
+    {
+        cs1550_wait(m->first_tenant);
+    }
+
+    while (*(m->apt_open) || *(m->agent_inside))
     {
         cs1550_wait(m->apt_empty);
     }
+
+    //*(m->apt_open) = true;
+    *(m->agent_inside) = true;
+
+    printf("going to open the apt\n");
 
     cs1550_release(m->lock);
 }
@@ -150,9 +167,10 @@ void agentLeaves(Monitor *m, int id)
 {
     cs1550_acquire(m->lock);
 
-    printf("%d && %d\n", *(m->num_inside) > 0, *(m->num_waiting) != 0);
-    
-    while (*(m->num_inside) > 0 && *(m->num_waiting) > 0)
+    printf("num_inside=%d\tnum_waiting=%d\n", *m->num_inside, *m->num_waiting);
+
+    while (*(m->num_inside) > 0 || (*(m->num_waiting) > 0 && *(m->num_views) < 10))
+    //while (*(m->apt_open))
     {
         cs1550_wait(m->last_tenant);
     }
@@ -160,6 +178,7 @@ void agentLeaves(Monitor *m, int id)
     *(m->num_inside) = 0;
     *(m->num_views) = 0;
     *(m->apt_open) = false;
+    *(m->agent_inside) = false;
 
     cs1550_signal(m->apt_empty);
 
@@ -183,13 +202,16 @@ void openApt(Monitor *m, int id)
 {
     cs1550_acquire(m->lock); 
     
+    sleep(2);
+
     *(m->apt_open) = true; 
 
     printf("Agent %d opens the apartment for inspection at time %d\n", id, elapsed());
 
     //cs1550_broadcast(m->want_to_view);
+    printf("%d, %d\n", !*(m->apt_open), *(m->num_views) >= 10);
     int i;
-    for (i = 0; i < *(m->num_waiting); ++i)
+    for (i = 0; i < *(m->num_waiting); i++)
     {
         printf("signal\n");
         cs1550_signal(m->want_to_view);
@@ -253,9 +275,9 @@ int main(int argc, char **argv)
         return 0;
     }
 
-    int num_cond_vars = 3;
+    int num_cond_vars = 4;
     int num_vals = 3;
-    int num_flags = 2;
+    int num_flags = 3;
 
     /* SHARE MEMORY */
 
@@ -276,27 +298,35 @@ int main(int argc, char **argv)
     struct cs1550_condition *cond1 = (struct cs1550_condition *)(lock + 1);
     struct cs1550_condition *cond2 = cond1 + 1;
     struct cs1550_condition *cond3 = cond2 + 1;
-    bool *done1 = (bool *)(cond3 + 1);
+    struct cs1550_condition *cond4 = cond3 + 1;
+    bool *done1 = (bool *)(cond4 + 1);
     bool *done2 = done1 + 1;
-    int *val1 = (int *)(done2 + 1);
+    bool *done3 = done2 + 1;
+    int *val1 = (int *)(done3 + 1);
     int *val2 = val1 + 1;
     int *val3 = val2 + 1;
 
     *done1 = false;
     *done2 = false;
-
+    *done3 = false;
+    *val1 = 0;
+    *val2 = 0;
+    *val3 = 0;
     cs1550_init_lock(lock);
     cs1550_init_condition(cond1, lock);
     cs1550_init_condition(cond2, lock);
     cs1550_init_condition(cond3, lock);
+    cs1550_init_condition(cond4, lock);
 
     aptsim.lock = lock;
 
     aptsim.apt_empty = cond1;
     aptsim.want_to_view = cond2;
     aptsim.last_tenant = cond3;
+    aptsim.first_tenant = cond4;
 
     aptsim.apt_open = done1;
+    aptsim.agent_inside = done2;
 
     aptsim.num_views = val1;
     aptsim.num_inside = val2;
