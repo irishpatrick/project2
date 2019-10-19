@@ -115,8 +115,6 @@ void tenantArrives(Monitor *m, int id)
         cs1550_wait(m->want_to_view);
     }
 
-    printf("got thru\n");
-
     *(m->num_waiting) -= 1;
     *(m->num_inside) += 1;
     *(m->num_views) += 1;
@@ -145,7 +143,7 @@ void agentArrives(Monitor *m, int id)
 
     printf("Agent %d arrives at time %d.\n", id, elapsed());
 
-    while (*(m->num_waiting) < 1)
+    while (*(m->num_waiting) < 1 || *(m->agent_inside))
     {
         cs1550_wait(m->first_tenant);
     }
@@ -158,16 +156,12 @@ void agentArrives(Monitor *m, int id)
     //*(m->apt_open) = true;
     *(m->agent_inside) = true;
 
-    printf("going to open the apt\n");
-
     cs1550_release(m->lock);
 }
 
 void agentLeaves(Monitor *m, int id)
 {
     cs1550_acquire(m->lock);
-
-    printf("num_inside=%d\tnum_waiting=%d\n", *m->num_inside, *m->num_waiting);
 
     while (*(m->num_inside) > 0 || (*(m->num_waiting) > 0 && *(m->num_views) < 10))
     //while (*(m->apt_open))
@@ -209,11 +203,9 @@ void openApt(Monitor *m, int id)
     printf("Agent %d opens the apartment for inspection at time %d\n", id, elapsed());
 
     //cs1550_broadcast(m->want_to_view);
-    printf("%d, %d\n", !*(m->apt_open), *(m->num_views) >= 10);
     int i;
     for (i = 0; i < *(m->num_waiting); i++)
     {
-        printf("signal\n");
         cs1550_signal(m->want_to_view);
     }
 
@@ -250,6 +242,12 @@ int main(int argc, char **argv)
 
     // seed random
     srand(time(NULL));
+
+    int pt = 70;
+    int dt = 20;
+
+    int pa = 30;
+    int da = 30;
 
     Monitor aptsim;
 
@@ -342,24 +340,25 @@ int main(int argc, char **argv)
     {
         // tenant spawner
         int i = 0;
+        int prob = pt;
+        int delay = 0;
         while (i < aptsim.num_tenants)
         {
-            //printf("l");
-            int prob = randint(1, 1000000);
-            if (prob == 5)
+            i++;
+            int spawn = fork();
+            if (spawn == 0)
             {
-                ++i;
-                int spawn = fork();
-                if (spawn == 0)
-                {
-                    // tenant
-                    tenant_proc(&aptsim, i);
-                    break;
-                }
-                else
-                {
-                    // parent proc
-                }
+                // tenant
+                tenant_proc(&aptsim, i);
+            }
+            else
+            {
+                // parent proc
+            }
+            int burst = randint(1, 100) >= pt;
+            if (!burst)
+            {
+                sleep(dt);
             }
         }        
     }
