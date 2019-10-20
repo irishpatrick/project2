@@ -143,12 +143,13 @@ void agentArrives(Monitor *m, int id)
 
     printf("Agent %d arrives at time %d.\n", id, elapsed());
 
-    while (*(m->num_waiting) < 1 || *(m->agent_inside))
+    while (*(m->num_waiting) < 1)
     {
         cs1550_wait(m->first_tenant);
     }
 
-    while (*(m->apt_open) || *(m->agent_inside))
+
+    while (*(m->agent_inside))
     {
         cs1550_wait(m->apt_empty);
     }
@@ -236,7 +237,7 @@ int main(int argc, char **argv)
     // validate argc
     if (argc < 5)
     {
-        printf("usage: ./aptsim -m <num tenants> -k <num agents>\n");
+        printf("usage: ./aptsim -m <num tenants> -k <num agents> [-pt <tenant prob> -pa <agent prob> -dt <tenant delay> -at <agent delay>]\n");
         return 0;
     }
 
@@ -255,7 +256,7 @@ int main(int argc, char **argv)
     aptsim.num_agents = -1;
 
     int i;
-    for (i = 1; i < 5; i += 2)
+    for (i = 1; i < argc; i += 2)
     {
         if (strcmp(argv[i], "-m") == 0)
         {
@@ -264,6 +265,22 @@ int main(int argc, char **argv)
         else if (strcmp(argv[i], "-k") == 0)
         {
             aptsim.num_agents = atoi(argv[i + 1]);
+        }
+        else if (strcmp(argv[i], "-pt") == 0)
+        {
+            pt = atoi(argv[i + 1]);
+        }
+        else if (strcmp(argv[i], "-dt") == 0)
+        {
+            dt = atoi(argv[i + 1]);
+        }
+        else if (strcmp(argv[i], "-pa") == 0)
+        {
+            pa = atoi(argv[i + 1]);
+        }
+        else if (strcmp(argv[i], "-da") == 0)
+        {
+            da = atoi(argv[i + 1]);
         }
     }
 
@@ -330,7 +347,6 @@ int main(int argc, char **argv)
     aptsim.num_inside = val2;
     aptsim.num_waiting = val3;
 
-    printf("set start time\n");
     start_time = cur_time();
 
     /* CREATE PROCESSES */
@@ -345,16 +361,25 @@ int main(int argc, char **argv)
         while (i < aptsim.num_tenants)
         {
             i++;
+            
             int spawn = fork();
             if (spawn == 0)
             {
                 // tenant
                 tenant_proc(&aptsim, i);
+                break;
             }
             else
             {
                 // parent proc
             }
+
+            if (i == aptsim.num_tenants)
+            {
+                // we're done
+                break;
+            }
+
             int burst = randint(1, 100) >= pt;
             if (!burst)
             {
@@ -372,22 +397,33 @@ int main(int argc, char **argv)
             int j = 0;
             while (j < aptsim.num_agents)
             {
-                int prob = randint(1, 1000000);
-                if (prob == 5)
+                printf("agent goes from %d to %d\n", j, j+1);
+                ++j;
+                int spawn = fork();
+                if (spawn == 0)
                 {
-                    ++j;
-                    int spawn = fork();
-                    if (spawn == 0)
-                    {
-                        // agent
-                        agent_proc(&aptsim, j);
-                        break;
-                    }
-                    else
-                    {
-                        // parent
-                    }
-                } 
+                    // agent
+                    agent_proc(&aptsim, j);
+                    break;
+                }
+                else
+                {
+                    printf("agent %d parent called\n", j);
+                    // parent
+                }
+                printf("agent %d body called\n", j);
+
+                if (j == aptsim.num_agents)
+                {
+                    // we're done
+                    break;
+                }
+                
+                int burst = randint(1, 100) > pa;
+                if (!burst)
+                {
+                    sleep(da);
+                }
             }
         }
         else
