@@ -15,8 +15,8 @@ int randint(int, int);
 void allocate(void **, unsigned long);
 void deallocate(void **, unsigned long);
 
-void tenantArrives();
-void agentArrives();
+int tenantArrives();
+int agentArrives();
 void viewApt();
 void openApt();
 void tenantLeaves();
@@ -89,6 +89,8 @@ typedef struct _Monitor
     int *num_views;
     int *num_inside;
     int *num_waiting;
+    int *tenants_left;
+    int *agents_left;
 
     /* CONSTANTS */
     
@@ -97,11 +99,18 @@ typedef struct _Monitor
 
 } Monitor;
 
-void tenantArrives(Monitor *m, int id)
+int tenantArrives(Monitor *m, int id)
 {
     cs1550_acquire(m->lock);
 
     printf("Tenant %d arrives at time %d.\n", id, elapsed());
+
+    if (*(m->agents_left) < 1 || *(m->agents_left) < 2 && *(m->num_views) >= 10)
+    {
+        printf("Tenant %d has to leave\n", id);
+        cs1550_release(m->lock);
+        return 1;
+    }
 
     if (*(m->num_waiting) == 0)
     {
@@ -120,6 +129,8 @@ void tenantArrives(Monitor *m, int id)
     *(m->num_views) += 1;
 
     cs1550_release(m->lock);
+
+    return 0;
 }
 
 void tenantLeaves(Monitor *m, int id)
@@ -129,56 +140,78 @@ void tenantLeaves(Monitor *m, int id)
     printf("Tenant %d leaves at time %d.\n", id, elapsed());
 
     *(m->num_inside) -= 1;
+    *(m->tenants_left) -= 1;
+
     if (*(m->num_inside) == 0)
     {
+        printf("signal last tenant\n");
         cs1550_signal(m->last_tenant);
     }
 
     cs1550_release(m->lock);
 }
 
-void agentArrives(Monitor *m, int id)
+int agentArrives(Monitor *m, int id)
 {
     cs1550_acquire(m->lock);
 
     printf("Agent %d arrives at time %d.\n", id, elapsed());
-
-    while (*(m->num_waiting) < 1)
-    {
-        cs1550_wait(m->first_tenant);
-    }
-
 
     while (*(m->agent_inside))
     {
         cs1550_wait(m->apt_empty);
     }
 
+    if (*(m->tenants_left) < 1)
+    {
+        *(m->agent_inside) = false;
+        cs1550_release(m->lock);
+        return 1;
+    }
+    
+    while (*(m->num_waiting) < 1)
+    {
+        cs1550_wait(m->first_tenant);
+    }
+
     //*(m->apt_open) = true;
     *(m->agent_inside) = true;
 
     cs1550_release(m->lock);
+
+    return 0;
 }
 
 void agentLeaves(Monitor *m, int id)
 {
     cs1550_acquire(m->lock);
 
+    if (!*(m->agent_inside))
+    {
+        cs1550_release(m->lock);
+        printf("Agent %d leaves at time %d.\n", id, elapsed());
+        return;
+    }
+
+    printf("wait for last tenant\n");
     while (*(m->num_inside) > 0 || (*(m->num_waiting) > 0 && *(m->num_views) < 10))
     //while (*(m->apt_open))
     {
         cs1550_wait(m->last_tenant);
     }
+    printf("cya\n");
 
     *(m->num_inside) = 0;
     *(m->num_views) = 0;
     *(m->apt_open) = false;
     *(m->agent_inside) = false;
+    *(m->agents_left) -= 1;
 
     cs1550_signal(m->apt_empty);
 
     printf("Agent %d leaves at time %d.\n", id, elapsed());
 
+    printf("The apartment is now empty.\n");
     cs1550_release(m->lock);
 }
 
@@ -188,16 +221,26 @@ void viewApt(Monitor *m, int id)
     
     printf("Tenant %d inspects the apartment at time %d\n", id, elapsed());
 
+    cs1550_release(m->lock);
     sleep(2);
+    cs1550_acquire(m->lock);
     
     cs1550_release(m->lock); 
 }
 
 void openApt(Monitor *m, int id)
 {
-    cs1550_acquire(m->lock); 
+    cs1550_acquire(m->lock);
+
+    if (!*(m->agent_inside))
+    {
+        cs1550_release(m->lock);
+        return;
+    }
     
+    cs1550_release(m->lock);
     sleep(2);
+    cs1550_acquire(m->lock);
 
     *(m->apt_open) = true; 
 
@@ -218,15 +261,24 @@ void openApt(Monitor *m, int id)
 
 void agent_proc(Monitor *m, int id)
 {
-    agentArrives(m, id);
-    openApt(m, id);
+    int cannot_enter;
+    cannot_enter = agentArrives(m, id);
+    if (!cannot_enter)
+    {
+        openApt(m, id);
+    }
+    //openApt(m, id);
     agentLeaves(m, id);
 }
 
 void tenant_proc(Monitor* m, int id)
 {
-    tenantArrives(m, id);
-    viewApt(m, id);
+    int cannot_enter;
+    cannot_enter = tenantArrives(m, id);
+    if (!cannot_enter)
+    {
+        viewApt(m, id);    
+    }
     tenantLeaves(m, id);
 }
 
@@ -241,14 +293,13 @@ int main(int argc, char **argv)
         return 0;
     }
 
-    // seed random
-    srand(time(NULL));
-
     int pt = 70;
     int dt = 20;
 
     int pa = 30;
     int da = 30;
+
+    int st = -1;
 
     Monitor aptsim;
 
@@ -282,6 +333,10 @@ int main(int argc, char **argv)
         {
             da = atoi(argv[i + 1]);
         }
+        else if (strcmp(argv[i], "-st") == 0)
+        {
+            st = atoi(argv[i + 1]);
+        }
     }
 
     if (aptsim.num_tenants < 1 || aptsim.num_agents < 1)
@@ -290,8 +345,18 @@ int main(int argc, char **argv)
         return 0;
     }
 
+    // seed random
+    if (st > 0)
+    {
+        srand(st);
+    }
+    else
+    {
+        srand(time(NULL));
+    }
+
     int num_cond_vars = 4;
-    int num_vals = 3;
+    int num_vals = 6;
     int num_flags = 3;
 
     /* SHARE MEMORY */
@@ -320,6 +385,9 @@ int main(int argc, char **argv)
     int *val1 = (int *)(done3 + 1);
     int *val2 = val1 + 1;
     int *val3 = val2 + 1;
+    int *val4 = val3 + 1;
+    int *val5 = val4 + 1;
+    int *balance = val5 + 1;
 
     *done1 = false;
     *done2 = false;
@@ -327,6 +395,10 @@ int main(int argc, char **argv)
     *val1 = 0;
     *val2 = 0;
     *val3 = 0;
+    *val4 = aptsim.num_tenants;
+    *val5 = aptsim.num_agents;
+    *balance = 0;
+    
     cs1550_init_lock(lock);
     cs1550_init_condition(cond1, lock);
     cs1550_init_condition(cond2, lock);
@@ -346,12 +418,15 @@ int main(int argc, char **argv)
     aptsim.num_views = val1;
     aptsim.num_inside = val2;
     aptsim.num_waiting = val3;
+    aptsim.tenants_left = val4;
+    aptsim.agents_left = val5;
 
     start_time = cur_time();
 
     /* CREATE PROCESSES */
 
     int pid = fork();
+    *(balance) += 1;
     if (pid == 0)
     {
         // tenant spawner
@@ -363,6 +438,7 @@ int main(int argc, char **argv)
             i++;
             
             int spawn = fork();
+            *(balance) += 1;
             if (spawn == 0)
             {
                 // tenant
@@ -391,15 +467,17 @@ int main(int argc, char **argv)
     {
         // parent
         int pid2 = fork();
+        *(balance) += 1;
         if (pid2 == 0)
         {
             // agent spawner
             int j = 0;
             while (j < aptsim.num_agents)
             {
-                printf("agent goes from %d to %d\n", j, j+1);
+                //printf("agent goes from %d to %d\n", j, j+1);
                 ++j;
-                int spawn = fork();
+                int spawn = fork(); 
+                *(balance) += 1;
                 if (spawn == 0)
                 {
                     // agent
@@ -408,10 +486,9 @@ int main(int argc, char **argv)
                 }
                 else
                 {
-                    printf("agent %d parent called\n", j);
-                    // parent
+                    printf("REAL PARENT RIGHT HERE\n");
                 }
-                printf("agent %d body called\n", j);
+                //printf("agent %d body called\n", j);
 
                 if (j == aptsim.num_agents)
                 {
@@ -429,27 +506,37 @@ int main(int argc, char **argv)
         else
         {
             // parent
+            
+            /* WAIT FOR CHILDREN */
+            int k = 0;
+
+            /* WAIT FOR TENANTS */
+            for (k = 0; k < aptsim.num_tenants; ++k)
+            {
+                wait(NULL);
+                *(balance) -= 1;
+            }
+
+            /* WAIT FOR AGENTS */
+            for (k = 0; k < aptsim.num_agents; ++k)
+            {
+                wait(NULL);
+                *(balance) -= 1;
+            }
+
+            /* WAIT FOR SPAWNERS */
+            wait(NULL);
+            *(balance) -= 1;
+            wait(NULL);
+            *(balance) -= 1;
+
+            printf("balance=%d\n", *balance);
         }
+
+        printf("this should be the end\n");
     }
 
-    /* WAIT FOR CHILDREN */
-    int k = 0;
-
-    /* WAIT FOR TENANTS */
-    for (k = 0; k < aptsim.num_tenants; ++k)
-    {
-        wait(NULL);
-    }
-
-    /* WAIT FOR AGENTS */
-    for (k = 0; k < aptsim.num_agents; ++k)
-    {
-        wait(NULL);
-    }
-
-    /* WAIT FOR SPAWNERS */
-    wait(NULL);
-    wait(NULL);
+    printf("now for the real end\n");
 
     return 0;
 }
