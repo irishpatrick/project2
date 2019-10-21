@@ -76,6 +76,7 @@ typedef struct _Monitor
     /* CONDITION VARIABLES */
     struct cs1550_condition *apt_empty;
     struct cs1550_condition *want_to_view;
+    struct cs1550_condition *want_to_open;
     struct cs1550_condition *last_tenant;
     struct cs1550_condition *first_tenant;
 
@@ -106,27 +107,38 @@ int tenantArrives(Monitor *m, int id)
     printf("Tenant %d arrives at time %d.\n", id, elapsed());
 
     if (*(m->agents_left) < 1 || *(m->agents_left) < 2 && *(m->num_views) >= 10)
+    //if (true)
     {
-        printf("Tenant %d has to leave\n", id);
+        //printf("Tenant %d has to leave\n", id);
         cs1550_release(m->lock);
         return 1;
     }
 
     if (*(m->num_waiting) == 0)
     {
-        cs1550_signal(m->first_tenant);
+        //cs1550_signal(m->first_tenant);
+        cs1550_signal(m->want_to_open);
     }
 
     *(m->num_waiting) += 1;
     
-    while (!*(m->apt_open) || *(m->num_views) >= 10)
+    while ((!*(m->apt_open) || *(m->num_views) >= 10) && *(m->agents_left) > 0) 
     {
         cs1550_wait(m->want_to_view);
     }
 
     *(m->num_waiting) -= 1;
-    *(m->num_inside) += 1;
-    *(m->num_views) += 1;
+
+    if (*(m->agents_left) < 1 || *(m->agents_left) < 2 && *(m->num_views) >= 10)
+    //if (true)
+    {
+        //printf("Tenant %d has to leave\n", id);
+        cs1550_release(m->lock);
+        return 1;
+    }
+
+    //*(m->num_inside) += 1;
+    //*(m->num_views) += 1;
 
     cs1550_release(m->lock);
 
@@ -138,13 +150,14 @@ void tenantLeaves(Monitor *m, int id)
     cs1550_acquire(m->lock);
 
     printf("Tenant %d leaves at time %d.\n", id, elapsed());
-
-    *(m->num_inside) -= 1;
+    
+    //*(m->num_inside) -= 1;
     *(m->tenants_left) -= 1;
+    //printf("inside=%d\n", *m->num_inside);
 
     if (*(m->num_inside) == 0)
     {
-        // printf("signal last tenant\n");
+        //printf("signal last tenant\n");
         cs1550_signal(m->last_tenant);
     }
 
@@ -157,21 +170,37 @@ int agentArrives(Monitor *m, int id)
 
     printf("Agent %d arrives at time %d.\n", id, elapsed());
 
-    while (*(m->agent_inside))
+    //printf("wait apt empty\n");
+    /*while (*(m->agent_inside))
     {
         cs1550_wait(m->apt_empty);
-    }
+    }*/
 
+    //printf("ten left %d num wait %d\n", *m->tenants_left, *m->num_waiting);
     if (*(m->tenants_left) < 1)
     {
-        *(m->agent_inside) = false;
+        //*(m->agent_inside) = false;
         cs1550_release(m->lock);
         return 1;
     }
     
-    while (*(m->num_waiting) < 1)
+    //printf("wait first tenant\n");
+    /*while (*(m->num_waiting) < 1)
     {
         cs1550_wait(m->first_tenant);
+    }*/
+
+    while ((*(m->num_waiting) < 1 || *(m->agent_inside)) && *(m->tenants_left) > 0)
+    {
+        cs1550_wait(m->want_to_open);
+    }
+
+
+    if (*(m->tenants_left) < 1)
+    {
+        //*(m->agent_inside) = false;
+        cs1550_release(m->lock);
+        return 1;
     }
 
     //*(m->apt_open) = true;
@@ -186,14 +215,7 @@ void agentLeaves(Monitor *m, int id)
 {
     cs1550_acquire(m->lock);
 
-    if (!*(m->agent_inside))
-    {
-        cs1550_release(m->lock);
-        printf("Agent %d leaves at time %d.\n", id, elapsed());
-        return;
-    }
-
-    printf("wait for last tenant\n");
+    //printf("wait for last tenant\n");
     while (*(m->num_inside) > 0 || (*(m->num_waiting) > 0 && *(m->num_views) < 10))
     //while (*(m->apt_open))
     {
@@ -207,9 +229,12 @@ void agentLeaves(Monitor *m, int id)
     *(m->agent_inside) = false;
     *(m->agents_left) -= 1;
 
-    cs1550_signal(m->apt_empty);
+    //cs1550_signal(m->apt_empty);
+    cs1550_signal(m->want_to_open);
 
     printf("Agent %d leaves at time %d.\n", id, elapsed());
+
+    //printf("num waiting %d\n", *m->num_waiting);
 
     printf("The apartment is now empty.\n");
     cs1550_release(m->lock);
@@ -221,9 +246,14 @@ void viewApt(Monitor *m, int id)
     
     printf("Tenant %d inspects the apartment at time %d\n", id, elapsed());
 
+    *(m->num_inside) += 1;
+    *(m->num_views) += 1;
+
     cs1550_release(m->lock);
     sleep(2);
     cs1550_acquire(m->lock);
+
+    *(m->num_inside) -= 1;
     
     cs1550_release(m->lock); 
 }
@@ -231,12 +261,6 @@ void viewApt(Monitor *m, int id)
 void openApt(Monitor *m, int id)
 {
     cs1550_acquire(m->lock);
-
-    if (!*(m->agent_inside))
-    {
-        cs1550_release(m->lock);
-        return;
-    }
     
     cs1550_release(m->lock);
     sleep(2);
@@ -256,7 +280,6 @@ void openApt(Monitor *m, int id)
     cs1550_release(m->lock);
 }
 
-
 /* PROCESSES */
 
 void agent_proc(Monitor *m, int id)
@@ -267,7 +290,6 @@ void agent_proc(Monitor *m, int id)
     {
         openApt(m, id);
     }
-    //openApt(m, id);
     agentLeaves(m, id);
 }
 
@@ -293,19 +315,19 @@ int main(int argc, char **argv)
         return 0;
     }
 
-    int pt = 70;
-    int dt = 20;
+    int pt = 100;
+    int dt = 100;
 
-    int pa = 30;
-    int da = 30;
+    int pa = 1;
+    int da = 1;
 
-    int st = 0;
-    int sa = 0;
+    int st = 1;
+    int sa = 2;
 
     Monitor aptsim;
 
-    aptsim.num_tenants = -1;
-    aptsim.num_agents = -1;
+    aptsim.num_tenants = 1;
+    aptsim.num_agents = 1;
 
     int i;
     for (i = 1; i < argc; i += 2)
@@ -350,20 +372,21 @@ int main(int argc, char **argv)
         return 0;
     }
 
-    int num_cond_vars = 4;
+    int num_cond_vars = 5;
     int num_vals = 6;
     int num_flags = 3;
 
     /* SHARE MEMORY */
 
-    struct cs1550_lock *lock = mmap(
-        NULL, 
- 
+    int map_size = 
         sizeof(struct cs1550_lock) + 
         num_cond_vars * sizeof(struct cs1550_condition) + 
         num_flags * sizeof(bool) + 
-        num_vals * sizeof(int),
+        num_vals * sizeof(int);
 
+    struct cs1550_lock *lock = mmap(
+        NULL, 
+        map_size,
         PROT_READ | PROT_WRITE, 
         MAP_SHARED | MAP_ANONYMOUS, 
         0, 0);
@@ -374,7 +397,8 @@ int main(int argc, char **argv)
     struct cs1550_condition *cond2 = cond1 + 1;
     struct cs1550_condition *cond3 = cond2 + 1;
     struct cs1550_condition *cond4 = cond3 + 1;
-    bool *done1 = (bool *)(cond4 + 1);
+    struct cs1550_condition *cond5 = cond4 + 1;
+    bool *done1 = (bool *)(cond5 + 1);
     bool *done2 = done1 + 1;
     bool *done3 = done2 + 1;
     int *val1 = (int *)(done3 + 1);
@@ -399,6 +423,7 @@ int main(int argc, char **argv)
     cs1550_init_condition(cond2, lock);
     cs1550_init_condition(cond3, lock);
     cs1550_init_condition(cond4, lock);
+    cs1550_init_condition(cond5, lock);
 
     aptsim.lock = lock;
 
@@ -406,6 +431,7 @@ int main(int argc, char **argv)
     aptsim.want_to_view = cond2;
     aptsim.last_tenant = cond3;
     aptsim.first_tenant = cond4;
+    aptsim.want_to_open = cond5;
 
     aptsim.apt_open = done1;
     aptsim.agent_inside = done2;
@@ -452,18 +478,20 @@ int main(int argc, char **argv)
                         *(balance) -= 1;
                     }
                 }
-            }
+                else
+                {    
+                    /*if (i == aptsim.num_tenants)
+                    {
+                        // we're done
+                        break;
+                    }*/
 
-            if (i == aptsim.num_tenants)
-            {
-                // we're done
-                break;
-            }
-
-            int burst = randint(1, 100) >= pt;
-            if (!burst)
-            {
-                sleep(dt);
+                    int burst = randint(1, 100) < pt;
+                    if (!burst)
+                    {
+                        sleep(dt);
+                    }
+                }
             }
         }        
     }
@@ -501,20 +529,25 @@ int main(int argc, char **argv)
                             *(balance) -= 1;
                         }
                     }
+                    else
+                    {
+                        int ri = randint(1, 100);
+                        //printf("ri=%d\n", ri);
+                        int burst = ri < pa;
+                        if (!burst)
+                        {
+                            //printf("DELAY\n");
+                            sleep(da);
+                        }
+                    }
                 }
                 //printf("agent %d body called\n", j);
 
-                if (j == aptsim.num_agents)
+                /*if (j == aptsim.num_agents)
                 {
                     // we're done
                     break;
-                }
-                
-                int burst = randint(1, 100) > pa;
-                if (!burst)
-                {
-                    sleep(da);
-                }
+                }*/
             }
         }
         else
@@ -544,7 +577,9 @@ int main(int argc, char **argv)
             wait(NULL);
             *(balance) -= 1;
 
-            printf("balance=%d\n", *balance);
+            deallocate((void**)&lock, map_size);
+
+            //printf("balance=%d\n", *balance);
         }
     }
 
