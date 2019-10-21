@@ -144,7 +144,7 @@ void tenantLeaves(Monitor *m, int id)
 
     if (*(m->num_inside) == 0)
     {
-        printf("signal last tenant\n");
+        // printf("signal last tenant\n");
         cs1550_signal(m->last_tenant);
     }
 
@@ -199,7 +199,7 @@ void agentLeaves(Monitor *m, int id)
     {
         cs1550_wait(m->last_tenant);
     }
-    printf("cya\n");
+    //printf("cya\n");
 
     *(m->num_inside) = 0;
     *(m->num_views) = 0;
@@ -299,7 +299,8 @@ int main(int argc, char **argv)
     int pa = 30;
     int da = 30;
 
-    int st = -1;
+    int st = 0;
+    int sa = 0;
 
     Monitor aptsim;
 
@@ -337,22 +338,16 @@ int main(int argc, char **argv)
         {
             st = atoi(argv[i + 1]);
         }
+        else if (strcmp(argv[i], "-sa") == 0)
+        {
+            sa = atoi(argv[i + 1]);
+        }
     }
 
     if (aptsim.num_tenants < 1 || aptsim.num_agents < 1)
     {
         printf("bad arguments\n");
         return 0;
-    }
-
-    // seed random
-    if (st > 0)
-    {
-        srand(st);
-    }
-    else
-    {
-        srand(time(NULL));
     }
 
     int num_cond_vars = 4;
@@ -425,10 +420,11 @@ int main(int argc, char **argv)
 
     /* CREATE PROCESSES */
 
-    int pid = fork();
     *(balance) += 1;
+    int pid = fork();
     if (pid == 0)
     {
+        srand(st);
         // tenant spawner
         int i = 0;
         int prob = pt;
@@ -436,9 +432,9 @@ int main(int argc, char **argv)
         while (i < aptsim.num_tenants)
         {
             i++;
-            
-            int spawn = fork();
+
             *(balance) += 1;
+            int spawn = fork();
             if (spawn == 0)
             {
                 // tenant
@@ -447,7 +443,15 @@ int main(int argc, char **argv)
             }
             else
             {
-                // parent proc
+                if (i == aptsim.num_tenants)
+                {
+                    int ii;
+                    for (ii = 0; ii < aptsim.num_tenants; ii++)
+                    {
+                        wait(NULL);
+                        *(balance) -= 1;
+                    }
+                }
             }
 
             if (i == aptsim.num_tenants)
@@ -465,19 +469,20 @@ int main(int argc, char **argv)
     }
     else
     {
-        // parent
-        int pid2 = fork();
+        // parent (main func)
         *(balance) += 1;
+        int pid2 = fork();
         if (pid2 == 0)
         {
+            srand(sa);
             // agent spawner
             int j = 0;
             while (j < aptsim.num_agents)
             {
                 //printf("agent goes from %d to %d\n", j, j+1);
                 ++j;
-                int spawn = fork(); 
                 *(balance) += 1;
+                int spawn = fork(); 
                 if (spawn == 0)
                 {
                     // agent
@@ -486,7 +491,16 @@ int main(int argc, char **argv)
                 }
                 else
                 {
-                    printf("REAL PARENT RIGHT HERE\n");
+                    // parent (agent spawner)
+                    if (j == aptsim.num_agents)
+                    {
+                        int ii;
+                        for (ii = 0; ii < aptsim.num_agents; ii++)
+                        {
+                            wait(NULL);
+                            *(balance) -= 1;
+                        }
+                    }
                 }
                 //printf("agent %d body called\n", j);
 
@@ -505,24 +519,24 @@ int main(int argc, char **argv)
         }
         else
         {
-            // parent
+            // parent (main)
             
             /* WAIT FOR CHILDREN */
-            int k = 0;
+            //int k = 0;
 
             /* WAIT FOR TENANTS */
-            for (k = 0; k < aptsim.num_tenants; ++k)
+            /*for (k = 0; k < aptsim.num_tenants; ++k)
             {
                 wait(NULL);
                 *(balance) -= 1;
-            }
+            }*/
 
             /* WAIT FOR AGENTS */
-            for (k = 0; k < aptsim.num_agents; ++k)
+            /*for (k = 0; k < aptsim.num_agents; ++k)
             {
                 wait(NULL);
                 *(balance) -= 1;
-            }
+            }*/
 
             /* WAIT FOR SPAWNERS */
             wait(NULL);
@@ -532,11 +546,7 @@ int main(int argc, char **argv)
 
             printf("balance=%d\n", *balance);
         }
-
-        printf("this should be the end\n");
     }
-
-    printf("now for the real end\n");
 
     return 0;
 }
