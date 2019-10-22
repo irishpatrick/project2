@@ -74,25 +74,22 @@ typedef struct _Monitor
     struct cs1550_lock *lock;
     
     /* CONDITION VARIABLES */
-    struct cs1550_condition *first_agent;
+    struct cs1550_condition *apt_empty;
     struct cs1550_condition *want_to_view;
     struct cs1550_condition *want_to_open;
-    struct cs1550_condition *first_tenant;
     struct cs1550_condition *last_tenant;
+    struct cs1550_condition *first_tenant;
 
     /* FLAGS */
 
     bool *apt_open;
     bool *agent_inside;
-    bool *agent_present;
-    bool *tenant_present;
 
     /* OTHER STUFF */  
 
     int *num_views;
     int *num_inside;
     int *num_waiting;
-    int *agents_waiting;
     int *tenants_left;
     int *agents_left;
 
@@ -110,30 +107,44 @@ int tenantArrives(Monitor *m, int id)
     printf("Tenant %d arrives at time %d.\n", id, elapsed());
     fflush(stdout);
 
-    if (*m->agents_left < 1 || (*m->num_views >= 10 && *m->agents_left < 2))
+    if (*(m->agents_left) < 1 || *(m->agents_left) < 2 && *(m->num_views) >= 10)
     {
+        printf("Tenant %d has to leave\n", id);
+        
         cs1550_release(m->lock);
         return 1;
+    }
+
+    if (*(m->num_waiting) == 0)
+    {
+        printf("signal open\n");
+        //cs1550_signal(m->first_tenant);
+        cs1550_signal(m->want_to_open);
     }
 
     *(m->num_waiting) += 1;
-
-    cs1550_signal(m->want_to_open);
-
-    while (!*(m->apt_open) || (*(m->num_views) >= 10 && *m->agents_left > 1))
+    
+    printf("tenant got to here %d\n", *m->num_waiting);
+    while ((!*(m->apt_open) || *(m->num_views) >= 10) && *(m->agents_left) > 0) 
     {
         cs1550_wait(m->want_to_view);
     }
+    printf("%d %d %d\n", *m->apt_open, *m->num_views, *m->agents_left);
+    printf("tenant got thru\n");
 
-    if (*m->agents_left < 1 || (*m->num_views >= 10 && *m->agents_left < 2))
+    *(m->num_waiting) -= 1;
+
+    if (*(m->agents_left) < 1 || *(m->agents_left) < 2 && *(m->num_views) >= 10)
     {
+
+        printf("Tenant %d has to leave\n", id);
+        
         cs1550_release(m->lock);
         return 1;
     }
 
-    *(m->num_views) += 1;
-    *(m->num_inside) += 1;
-
+    //*(m->num_inside) += 1;
+    //*(m->num_views) += 1;
 
     cs1550_release(m->lock);
 
@@ -146,12 +157,15 @@ void tenantLeaves(Monitor *m, int id)
 
     printf("Tenant %d leaves at time %d.\n", id, elapsed());
     fflush(stdout);
-
-    *(m->num_inside) -= 1;
+    
+    //*(m->num_inside) -= 1;
     *(m->tenants_left) -= 1;
+    //printf("inside=%d\n", *m->num_inside);
 
     if (*(m->num_inside) == 0)
     {
+        //printf("signal last tenant\n");
+        
         cs1550_signal(m->last_tenant);
     }
     
@@ -165,27 +179,47 @@ int agentArrives(Monitor *m, int id)
     printf("Agent %d arrives at time %d.\n", id, elapsed());
     fflush(stdout);
 
-    //if (*m->num_inside >= *m->tenants_left)
-    if (*m->tenants_left < 1)
+    //printf("wait apt empty\n");
+    /*while (*(m->agent_inside))
     {
+        cs1550_wait(m->apt_empty);
+    }*/
+
+    //printf("ten left %d num wait %d\n", *m->tenants_left, *m->num_waiting);
+    if (*(m->tenants_left) < 1)
+    {
+        //*(m->agent_inside) = false;
+        
         cs1550_release(m->lock);
         return 1;
     }
-    while (*(m->agent_inside))
+    
+    //printf("wait first tenant\n");
+    /*while (*(m->num_waiting) < 1)
+    {
+        cs1550_wait(m->first_tenant);
+    }*/
+
+    printf("num_wating %d\n", *m->num_waiting);
+    while ((*(m->num_waiting) < 1 || *(m->agent_inside)) && *(m->tenants_left) > 0)
     {
         cs1550_wait(m->want_to_open);
     }
-    
-    //if (*m->num_inside >= *m->tenants_left)
-    if (*m->tenants_left < 1)
+    printf("going to open\n");
+
+
+    if (*(m->tenants_left) < 1)
     {
+        //*(m->agent_inside) = false;
+        
         cs1550_release(m->lock);
         return 1;
     }
 
-    cs1550_release(m->lock);
-
+    //*(m->apt_open) = true;
     *(m->agent_inside) = true;
+
+    cs1550_release(m->lock);
 
     return 0;
 }
@@ -194,15 +228,30 @@ void agentLeaves(Monitor *m, int id)
 {
     cs1550_acquire(m->lock);
 
-    printf("Agent %d leaves at time %d.\n", id, elapsed());
-    printf("The apartment is now empty.\n");
-    fflush(stdout);
+    printf("wait for last tenant\n");
+    while (*(m->num_inside) > 0 || (*(m->num_waiting) > 0 && *(m->num_views) < 10))
+    //while (*(m->apt_open))
+    {
+        cs1550_wait(m->last_tenant);
+    }
+    printf("cya\n");
 
-    *(m->agents_left) -= 1;
-    *(m->agent_inside) = false;
+    *(m->num_inside) = 0;
+    *(m->num_views) = 0;
     *(m->apt_open) = false;
+    *(m->agent_inside) = false;
+    *(m->agents_left) -= 1;
 
+    //cs1550_signal(m->apt_empty);
     cs1550_signal(m->want_to_open);
+
+    printf("Agent %d leaves at time %d.\n", id, elapsed());
+
+    //printf("num waiting %d\n", *m->num_waiting);
+
+    printf("The apartment is now empty.\n");
+
+    fflush(stdout);
 
     cs1550_release(m->lock);
 }
@@ -214,14 +263,15 @@ void viewApt(Monitor *m, int id)
     printf("Tenant %d inspects the apartment at time %d\n", id, elapsed());
     fflush(stdout);
 
-    *(m->num_waiting) -= 1;
-    //*(m->num_inside) += 1;
-    //*(m->num_views) += 1;
+    *(m->num_inside) += 1;
+    *(m->num_views) += 1;
 
     cs1550_release(m->lock);
     sleep(2);
     cs1550_acquire(m->lock);
 
+    *(m->num_inside) -= 1;
+    
     cs1550_release(m->lock); 
 }
 
@@ -231,21 +281,21 @@ void openApt(Monitor *m, int id)
 
     printf("Agent %d opens the apartment for inspection at time %d\n", id, elapsed());
     fflush(stdout);
+    
+    //cs1550_release(m->lock);
+    //sleep(2);
+    //cs1550_acquire(m->lock);
 
-    *(m->apt_open) = true;
+    *(m->apt_open) = true; 
+
+    //cs1550_broadcast(m->want_to_view);
     int i;
-    for (i = 0; i < *m->num_waiting; ++i)
+    printf("signal view %d times\n", *(m->num_waiting));
+    for (i = 0; i < *(m->num_waiting); i++)
     {
         cs1550_signal(m->want_to_view);
-    }
+    }    
 
-    //printf("%d, %d\n", *m->num_inside, *m->num_waiting);
-    //while (*(m->num_waiting) > 0 && *m->num_views < 10)
-    while (*(m->num_inside) > 0 || *m->num_views < 1)//|| (*(m->num_waiting) > 0 && *(m->num_views) < 10))
-    {
-        cs1550_wait(m->last_tenant);
-    }
-    
     cs1550_release(m->lock);
 }
 
@@ -342,8 +392,8 @@ int main(int argc, char **argv)
     }
 
     int num_cond_vars = 5;
-    int num_vals = 7;
-    int num_flags = 4;
+    int num_vals = 6;
+    int num_flags = 3;
     /* SHARE MEMORY */
 
     int map_size = 
@@ -369,27 +419,21 @@ int main(int argc, char **argv)
     bool *done1 = (bool *)(cond5 + 1);
     bool *done2 = done1 + 1;
     bool *done3 = done2 + 1;
-    bool *done4 = done3 + 1;
-    int *val1 = (int *)(done4 + 1);
+    int *val1 = (int *)(done3 + 1);
     int *val2 = val1 + 1;
     int *val3 = val2 + 1;
     int *val4 = val3 + 1;
     int *val5 = val4 + 1;
-    int *val6 = val5 + 1;
-    int *val7 = val6 + 1;
     //int *balance = val5 + 1;
 
     *done1 = false;
     *done2 = false;
     *done3 = false;
-    *done4 = false;
     *val1 = 0;
     *val2 = 0;
     *val3 = 0;
     *val4 = aptsim.num_tenants;
     *val5 = aptsim.num_agents;
-    *val6 = 0;
-    *val7 = 0;
     
     cs1550_init_lock(lock);
     cs1550_init_condition(cond1, lock);
@@ -400,24 +444,24 @@ int main(int argc, char **argv)
 
     aptsim.lock = lock;
 
-    aptsim.want_to_open = cond1;
+    aptsim.apt_empty = cond1;
     aptsim.want_to_view = cond2;
     aptsim.last_tenant = cond3;
     aptsim.first_tenant = cond4;
-    aptsim.first_agent = cond5;
+    aptsim.want_to_open = cond5;
 
     aptsim.apt_open = done1;
     aptsim.agent_inside = done2;
-    aptsim.agent_present = done3;
-    aptsim.tenant_present = done4;
 
     aptsim.num_views = val1;
     aptsim.num_inside = val2;
     aptsim.num_waiting = val3;
     aptsim.tenants_left = val4;
     aptsim.agents_left = val5;
-    //aptsim._waiting = val6;
-    aptsim.agents_waiting = val7;
+
+    cs1550_init_lock(aptsim.lock);
+    cs1550_init_condition(aptsim.want_to_view, aptsim.lock);
+    cs1550_init_condition(aptsim.want_to_open, aptsim.lock);
 
     start_time = cur_time();
 
@@ -426,7 +470,7 @@ int main(int argc, char **argv)
     int pid = fork();
     if (pid == 0)
     {
-        //sleep(10);
+       sleep(10);
         srand(st);
         // tenant spawner
         int i = 0;
